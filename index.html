@@ -1,0 +1,509 @@
+﻿```html
+<!DOCTYPE html>
+<html lang="bn">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes">
+    <title>এআইনেট ও সিসিএন | ফাইন্যান্স এন্ড ম্যানেজমেন্ট</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; font-family: 'Segoe UI', system-ui, sans-serif; }
+        body { background: linear-gradient(135deg, #0b2b3b 0%, #1a4a5f 100%); min-height: 100vh; padding: 20px; }
+        .glass-card { background: rgba(255,255,255,0.95); backdrop-filter: blur(2px); border-radius: 28px; padding: 28px; box-shadow: 0 20px 35px rgba(0,0,0,0.2); transition: 0.3s; }
+        .btn { background: linear-gradient(95deg, #f97316, #ef4444); border: none; color: white; font-weight: 600; border-radius: 40px; padding: 10px 20px; cursor: pointer; transition: 0.2s; margin: 4px; }
+        .btn-outline { background: transparent; border: 2px solid #f97316; color: #f97316; }
+        .btn-sm { padding: 6px 14px; font-size: 0.9rem; }
+        .grid-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 24px; margin: 20px 0; }
+        .stat-card { border-radius: 24px; padding: 20px; background: linear-gradient(115deg, #1e3c72, #2a5298); color: white; }
+        .transaction-list { max-height: 300px; overflow-y: auto; background: rgba(0,0,0,0.05); border-radius: 20px; padding: 8px; margin-top: 12px; }
+        .transaction-item { background: rgba(255,255,255,0.2); margin: 6px 0; padding: 10px 12px; border-radius: 18px; display: flex; justify-content: space-between; align-items: center; font-size: 0.85rem; gap: 8px; flex-wrap: wrap; }
+        .edit-btn { background: #ffb347; border: none; padding: 4px 12px; border-radius: 30px; cursor: pointer; }
+        .disabled-edit { background: #7f8c8d; cursor: not-allowed; opacity: 0.6; }
+        .serial-grid { display: flex; gap: 20px; flex-wrap: wrap; }
+        .serial-col { flex: 1; border-right: 2px solid #ccc; padding-right: 20px; }
+        .serial-col:last-child { border-right: none; }
+        .pagination { display: flex; justify-content: center; gap: 10px; margin-top: 15px; align-items: center; }
+        .filter-bar { display: flex; gap: 10px; align-items: center; margin-bottom: 15px; flex-wrap: wrap; }
+        .modal { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.6); z-index: 2000; display: flex; align-items: center; justify-content: center; }
+        .modal-content { background: white; max-width: 500px; width: 90%; border-radius: 32px; padding: 24px; }
+        .category-summary { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px,1fr)); gap: 12px; margin-top: 12px; }
+        .summary-item { background: rgba(255,255,255,0.15); padding: 8px 12px; border-radius: 20px; }
+        .flex-between { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px; margin-bottom: 20px; }
+        .flex-gap { display: flex; gap: 12px; flex-wrap: wrap; align-items: center; }
+        input, select, textarea { width: 100%; margin: 8px 0; padding: 12px; border-radius: 40px; border: 1px solid #ccc; font-size: 1rem; }
+        @media (max-width: 640px) { .glass-card { padding: 18px; } .serial-col { border-right: none; } .grid-cards { grid-template-columns: 1fr; } }
+    </style>
+</head>
+<body>
+<div id="app"></div>
+
+<script>
+    // =======================  CONFIGURATION  =======================
+    const API_URL = 'https://script.google.com/macros/s/AKfycbzWiBng40BJfqfahqbWu5t2R46xmFmzfZ_-ynzO-GUP2mJDjZ9G8rgIzbHkFNySDeJu8A/exec';
+    const COMPLAINT_SHEET_ID = '1uc5GyUrPgqwzyzyHBox1xE7qACx2qPCqQ9pd5E8oa-4';
+    let currentUser = null;
+    let usersList = [];
+
+    // =======================  API HELPER =======================
+    async function callApi(action, method = 'GET', payload = null) {
+        try {
+            if (method === 'GET') {
+                const res = await fetch(`${API_URL}?action=${action}&t=${Date.now()}`);
+                return await res.json();
+            } else {
+                const res = await fetch(API_URL, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+                return await res.json();
+            }
+        } catch (err) { return { success: false, error: err.message }; }
+    }
+    function getToday() { return new Date().toISOString().slice(0,10); }
+    function isEditable(editableUntil) {
+        if (!editableUntil) return false;
+        return new Date() < new Date(editableUntil);
+    }
+
+    // =======================  USER AUTH & LOAD =======================
+    async function loadUsers() {
+        const res = await callApi('getUsers');
+        if (res.success) usersList = res.data;
+        return usersList;
+    }
+    async function login(username, password, remember) {
+        await loadUsers();
+        const user = usersList.find(u => u.username === username && u.password === password);
+        if (user) {
+            currentUser = { ...user, password: password };
+            if (remember) localStorage.setItem('currentUser', JSON.stringify(currentUser));
+            sessionStorage.setItem('currentUser', JSON.stringify(currentUser));
+            return true;
+        }
+        return false;
+    }
+    function getStoredUser() {
+        const sess = sessionStorage.getItem('currentUser');
+        if (sess) return JSON.parse(sess);
+        const loc = localStorage.getItem('currentUser');
+        if (loc) return JSON.parse(loc);
+        return null;
+    }
+    function logout() {
+        currentUser = null;
+        sessionStorage.clear();
+        localStorage.removeItem('currentUser');
+        renderLoginPage();
+    }
+
+    // =======================  GLOBAL MODAL UTILS =======================
+    function showModal(content) {
+        let modal = document.querySelector('.modal');
+        if(modal) modal.remove();
+        modal = document.createElement('div');
+        modal.className = 'modal';
+        modal.innerHTML = `<div class="modal-content"><span style="float:right; font-size:28px; cursor:pointer;" onclick="closeModal()">&times;</span>${content}</div>`;
+        document.body.appendChild(modal);
+    }
+    window.closeModal = function() { document.querySelector('.modal')?.remove(); };
+
+    // ========== PASSWORD CHANGE ==========
+    window.showChangePasswordModal = function() {
+        showModal(`
+            <h3>🔐 পাসওয়ার্ড পরিবর্তন</h3>
+            <input type="password" id="oldPass" placeholder="বর্তমান পাসওয়ার্ড"><br>
+            <input type="password" id="newPass1" placeholder="নতুন পাসওয়ার্ড (ন্যূনতম ৪ অক্ষর)"><br>
+            <input type="password" id="newPass2" placeholder="নতুন পাসওয়ার্ড (পুনরায়)"><br>
+            <button class="btn" onclick="changePassword()">পরিবর্তন করুন</button>
+        `);
+    };
+    window.changePassword = async function() {
+        const oldPass = document.getElementById('oldPass').value;
+        const newPass1 = document.getElementById('newPass1').value;
+        const newPass2 = document.getElementById('newPass2').value;
+        if (newPass1 !== newPass2) { alert("নতুন পাসওয়ার্ড মেলেনি"); return; }
+        if (newPass1.length < 4) { alert("পাসওয়ার্ড কমপক্ষে ৪ অক্ষর হতে হবে"); return; }
+        const user = getStoredUser();
+        if (user.password !== oldPass) { alert("বর্তমান পাসওয়ার্ড ভুল"); return; }
+        const res = await callApi('updatePassword', 'POST', { username: user.username, newPassword: newPass1 });
+        if (res.success) { alert("পাসওয়ার্ড পরিবর্তন হয়েছে। পুনরায় লগইন করুন।"); logout(); }
+        else alert("পরিবর্তন ব্যর্থ: " + (res.error || "অজানা ত্রুটি"));
+    };
+
+    // ========== ADD NEW USER (ADMIN ONLY) ==========
+    window.showAddUserModal = function() {
+        showModal(`
+            <h3>➕ নতুন এমপ্লয়ি যুক্ত করুন</h3>
+            <input type="text" id="newUsername" placeholder="ইউজারনেম"><br>
+            <input type="text" id="newName" placeholder="পুরো নাম"><br>
+            <input type="password" id="newPassword" placeholder="পাসওয়ার্ড"><br>
+            <button class="btn" onclick="addNewUser()">যোগ করুন</button>
+        `);
+    };
+    window.addNewUser = async function() {
+        const username = document.getElementById('newUsername').value.trim();
+        const name = document.getElementById('newName').value.trim();
+        const password = document.getElementById('newPassword').value.trim();
+        if (!username || !name || !password) { alert("সব ফিল্ড পূরণ করুন"); return; }
+        if (password.length < 4) { alert("পাসওয়ার্ড কমপক্ষে ৪ অক্ষর"); return; }
+        const res = await callApi('addUser', 'POST', { username, password, role: 'employee', name });
+        if (res.success) { alert("ইউজার যোগ হয়েছে। নতুন ইউজার লগইন করতে পারবে।"); closeModal(); await loadUsers(); renderDashboard(); }
+        else alert("ব্যর্থ: " + (res.message || "ইউজারনেম ইতিমধ্যে থাকতে পারে"));
+    };
+
+    // ========== COMPLAINTS FROM GOOGLE SHEET ==========
+    async function fetchComplaints() {
+        try {
+            const url = `https://docs.google.com/spreadsheets/d/${COMPLAINT_SHEET_ID}/gviz/tq?tqx=out:json`;
+            const resp = await fetch(url);
+            const text = await resp.text();
+            const json = JSON.parse(text.substring(47).slice(0, -2));
+            const rows = json.table.rows;
+            const today = getToday();
+            const complaints = [];
+            for (let i = 1; i < rows.length; i++) {
+                const row = rows[i];
+                if (row.c && row.c[0] && row.c[0].v === today) {
+                    complaints.push({ complaint: row.c[1]?.v || '', status: row.c[2]?.v || '' });
+                }
+            }
+            return complaints;
+        } catch (e) { return []; }
+    }
+
+    // ========== LOGIN PAGE ==========
+    async function renderLoginPage() {
+        const complaints = await fetchComplaints();
+        const attRes = await callApi('getAttendance&date=' + getToday());
+        const todayAttendance = attRes.success ? attRes.data : [];
+        const app = document.getElementById('app');
+        app.innerHTML = `
+            <div class="glass-card" style="max-width: 480px; margin: 40px auto;">
+                <div style="text-align:center">
+                    <i class="fas fa-globe" style="font-size: 60px; color:#f97316;"></i>
+                    <h1 style="font-style: italic; color:#f97316;">এআইনেট ও সিসিএন</h1>
+                    <p>Finance & Management</p>
+                </div>
+                <form id="loginForm">
+                    <input type="text" id="username" placeholder="ইউজারনেম">
+                    <input type="password" id="password" placeholder="পাসওয়ার্ড">
+                    <label><input type="checkbox" id="remember"> ৭ দিন মনে রাখুন</label>
+                    <button type="submit" class="btn" style="width:100%;">লগইন</button>
+                </form>
+                <hr>
+                <div><strong>✅ আজকে উপস্থিত:</strong> ${todayAttendance.map(a=>`<span style="background:#28a745; border-radius:40px; padding:2px 12px; margin:4px; display:inline-block;">${usersList.find(u=>u.username===a.username)?.name||a.username}</span>`).join('') || 'কেউ নেই'}</div>
+                <div><strong>📢 অভিযোগ:</strong> ${complaints.map(c=>`<div>⚠️ ${c.complaint} (${c.status})</div>`).join('') || '✨ কোনো অভিযোগ নেই'}</div>
+                <div style="text-align:center; font-size:12px; margin-top:20px;">Developed by Mehrab Jahid</div>
+            </div>
+        `;
+        document.getElementById('loginForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const uname = document.getElementById('username').value;
+            const pwd = document.getElementById('password').value;
+            const rem = document.getElementById('remember').checked;
+            if (await login(uname, pwd, rem)) renderDashboard();
+            else alert('ভুল ইউজারনেম/পাসওয়ার্ড!');
+        });
+    }
+
+    // ========== DISPATCH DASHBOARD ==========
+    async function renderDashboard() {
+        const user = getStoredUser();
+        if (!user) { renderLoginPage(); return; }
+        currentUser = user;
+        const app = document.getElementById('app');
+        if (user.role === 'admin') app.innerHTML = await renderAdminDashboard();
+        else if (user.role === 'accounts') app.innerHTML = await renderAccountsDashboard();
+        else if (user.role === 'dataincharge') app.innerHTML = await renderInchargeDashboard();
+        else if (user.role === 'dataoperator') app.innerHTML = await renderOperatorDashboard();
+        else app.innerHTML = await renderEmployeeDashboard(user);
+    }
+
+    // ======================= 1. ADMIN DASHBOARD (full control + add user) =======================
+    async function renderAdminDashboard() {
+        let filterDate = localStorage.getItem('adminFilterDate') || '';
+        let incomes = (await callApi('getIncomes')).data || [];
+        let expenses = (await callApi('getExpenses')).data || [];
+        let recharges = (await callApi('getRecharges')).data || [];
+        let stbIncomes = (await callApi('getSTBIncomes')).data || [];
+        let accessories = (await callApi('getAccessories')).data || [];
+        if (filterDate) {
+            incomes = incomes.filter(i => i.date === filterDate);
+            expenses = expenses.filter(e => e.date === filterDate);
+            recharges = recharges.filter(r => r.date === filterDate);
+            stbIncomes = stbIncomes.filter(s => s.date === filterDate);
+        }
+        const categories = ['Ainet', 'CCN', 'পলাশবাড়ী CCN', 'রিসেলার Ainet', 'রিসেলার CCN'];
+        const catIncome = {}, catExpense = {};
+        categories.forEach(cat => {
+            catIncome[cat] = incomes.filter(i=>i.category===cat).reduce((s,i)=>s+i.amount,0);
+            catExpense[cat] = expenses.filter(e=>e.mainCategory===cat).reduce((s,e)=>s+e.amount,0);
+        });
+        const totalIncome = incomes.reduce((s,i)=>s+i.amount,0);
+        const totalExpense = expenses.reduce((s,e)=>s+e.amount,0);
+        const cashTotal = recharges.filter(r=>r.method==='cash').reduce((s,r)=>s+r.amount,0);
+        const bikashTotal = recharges.filter(r=>r.method==='bikash').reduce((s,r)=>s+r.amount,0);
+        const stbTotal = stbIncomes.reduce((s,i)=>s+i.amount,0);
+
+        function renderTransactionList(items, type) {
+            if (!items.length) return '<div class="transaction-item">📭 কোনো লেনদেন নেই</div>';
+            return items.map(t => `<div class="transaction-item"><span>${t.date} → ${type==='income'?`${t.category} ৳${t.amount}`:type==='expense'?`${t.subCategory} ৳${t.amount}`:type==='recharge'?`${t.method} - ${t.userId||t.userName} ৳${t.amount}`:`STB ৳${t.amount}`} ${t.note?`(${t.note})`:''}</span></div>`).join('');
+        }
+
+        window.filterAdminByDate = function() { localStorage.setItem('adminFilterDate', document.getElementById('adminDateFilter').value); renderDashboard(); };
+        window.clearAdminFilter = function() { localStorage.removeItem('adminFilterDate'); renderDashboard(); };
+
+        return `
+            <div class="glass-card">
+                <div class="flex-between">
+                    <h2><i class="fas fa-user-shield"></i> এডমিন প্যানেল</h2>
+                    <div class="flex-gap">
+                        <button class="btn-outline btn" onclick="showAddUserModal()">➕ নতুন ইউজার</button>
+                        <button class="btn-outline btn" onclick="showChangePasswordModal()">🔐 পাসওয়ার্ড পরিবর্তন</button>
+                        <button class="btn-outline btn" onclick="logout()">লগআউট</button>
+                    </div>
+                </div>
+                <div class="filter-bar">
+                    <input type="date" id="adminDateFilter" value="${filterDate}">
+                    <button class="btn" onclick="filterAdminByDate()">ফিল্টার</button>
+                    <button class="btn-outline btn" onclick="clearAdminFilter()">সব দেখুন</button>
+                </div>
+                <div class="grid-cards">
+                    <div class="stat-card">📊 মোট আয়: ৳ ${totalIncome.toLocaleString()}</div>
+                    <div class="stat-card">💰 মোট ব্যয়: ৳ ${totalExpense.toLocaleString()}</div>
+                    <div class="stat-card">💵 ক্যাশ রিচার্জ: ৳ ${cashTotal.toLocaleString()}</div>
+                    <div class="stat-card">📱 বিকাশ রিচার্জ: ৳ ${bikashTotal.toLocaleString()}</div>
+                    <div class="stat-card">📺 STB আয়: ৳ ${stbTotal.toLocaleString()}</div>
+                </div>
+                <h3>📌 ক্যাটাগরি ভিত্তিক আয়-ব্যয়</h3>
+                <div class="grid-cards">
+                    ${categories.map(cat => `<div class="stat-card" style="background:linear-gradient(115deg,#2c5a6e,#1a4a5f);"><h4>${cat}</h4><p>আয়: ৳ ${catIncome[cat].toLocaleString()}</p><p>ব্যয়: ৳ ${catExpense[cat].toLocaleString()}</p><p>ব্যালেন্স: ৳ ${(catIncome[cat]-catExpense[cat]).toLocaleString()}</p></div>`).join('')}
+                </div>
+                <h3>📋 আয়ের বিবরণ</h3><div class="transaction-list">${renderTransactionList(incomes, 'income')}</div>
+                <h3>📋 ব্যয়ের বিবরণ</h3><div class="transaction-list">${renderTransactionList(expenses, 'expense')}</div>
+                <h3>📡 রিচার্জ বিবরণ</h3><div class="transaction-list">${renderTransactionList(recharges, 'recharge')}</div>
+                <h3>📺 STB আয়ের বিবরণ</h3><div class="transaction-list">${renderTransactionList(stbIncomes, 'stb')}</div>
+                <h3>🛠️ এক্সেসরিজ তালিকা</h3><div class="transaction-list">${accessories.map(a=>`<div class="transaction-item">${a.itemName} → ${usersList.find(u=>u.username===a.assignedTo)?.name||'ফাঁকা'} (${a.note||''})</div>`).join('')||'<div>কোনো আইটেম নেই</div>'}</div>
+                <button class="btn" onclick="window.print()">🖨️ প্রিন্ট রিপোর্ট</button>
+            </div>
+        `;
+    }
+
+    // ======================= 2. ACCOUNTS DASHBOARD (with monthly category expense summary) =======================
+    async function renderAccountsDashboard() {
+        const sections = ['Ainet', 'CCN', 'পলাশবাড়ী CCN'];
+        let activeSection = localStorage.getItem('accountsActiveSection') || 'Ainet';
+        let filterDate = localStorage.getItem('accountsFilterDate_' + activeSection) || '';
+        let page = parseInt(localStorage.getItem('accountsPage_' + activeSection) || '1');
+        const rowsPerPage = 10;
+        let selectedMonth = localStorage.getItem('accountsExpenseMonth') || new Date().toISOString().slice(0,7);
+        
+        const incomes = (await callApi('getIncomes')).data || [];
+        const expensesAll = (await callApi('getExpenses')).data || [];
+
+        function incBy(cat, dateFilter) { let f = incomes.filter(i=>i.category===cat); if(dateFilter) f=f.filter(i=>i.date===dateFilter); return f.reduce((s,i)=>s+i.amount,0); }
+        function expBy(main, dateFilter) { let f = expensesAll.filter(e=>e.mainCategory===main); if(dateFilter) f=f.filter(e=>e.date===dateFilter); return f.reduce((s,e)=>s+e.amount,0); }
+        function getIncTrans(cat, dateFilter) { let f = incomes.filter(i=>i.category===cat); if(dateFilter) f=f.filter(i=>i.date===dateFilter); return f; }
+        function getExpTrans(main, dateFilter) { let f = expensesAll.filter(e=>e.mainCategory===main); if(dateFilter) f=f.filter(e=>e.date===dateFilter); return f; }
+
+        const incTotal = incBy(activeSection, filterDate);
+        const expTotal = expBy(activeSection, filterDate);
+        const balance = incTotal - expTotal;
+        let incTrans = getIncTrans(activeSection, filterDate);
+        let expTrans = getExpTrans(activeSection, filterDate);
+
+        const totalIncPages = Math.ceil(incTrans.length / rowsPerPage);
+        const totalExpPages = Math.ceil(expTrans.length / rowsPerPage);
+        const incStart = (page-1)*rowsPerPage, expStart = (page-1)*rowsPerPage;
+        const paginatedInc = incTrans.slice(incStart, incStart+rowsPerPage);
+        const paginatedExp = expTrans.slice(expStart, expStart+rowsPerPage);
+
+        // ---- category-wise monthly expense summary ----
+        const expenseByCategory = {};
+        const monthExpenses = expensesAll.filter(e => e.date.startsWith(selectedMonth));
+        monthExpenses.forEach(exp => { const cat = exp.subCategory; expenseByCategory[cat] = (expenseByCategory[cat]||0) + exp.amount; });
+        let categorySummaryHtml = '<div class="category-summary">';
+        for (let [cat, amt] of Object.entries(expenseByCategory).sort()) categorySummaryHtml += `<div class="summary-item"><strong>${cat}</strong><br>৳ ${amt.toLocaleString()}</div>`;
+        if (Object.keys(expenseByCategory).length === 0) categorySummaryHtml += '<div class="summary-item">কোনো ব্যয় নেই</div>';
+        categorySummaryHtml += '</div>';
+
+        function renderTransList(arr, type, parentCat) {
+            if (!arr.length) return '<div class="transaction-item">📭 কোনো লেনদেন নেই</div>';
+            return arr.map((t, idx) => `<div class="transaction-item"><span>${t.date} → ${type==='inc'?`৳${t.amount}`:`${t.subCategory} ৳${t.amount}`} ${t.note?`(${t.note})`:''}</span>${isEditable(t.editableUntil)?`<button class="edit-btn" onclick="editAccountTransaction('${type}', ${idx}, '${parentCat}', '${filterDate}')">এডিট</button>`:'<span class="disabled-edit">সময় শেষ</span>'}</div>`).join('');
+        }
+
+        window.editAccountTransaction = async function(type, idx, cat, dateFilter) {
+            if (type === 'inc') {
+                let all = (await callApi('getIncomes')).data || [];
+                if (dateFilter) all = all.filter(i=>i.date === dateFilter);
+                const t = all[idx];
+                if(!isEditable(t.editableUntil)) { alert("১৬ ঘন্টা অতিক্রম"); return; }
+                showModal(`<h3>আয় এডিট</h3><input type="date" id="dateVal" value="${t.date}"><br><input type="number" id="amountVal" value="${t.amount}"><br><textarea id="noteVal">${t.note||''}</textarea><br><button class="btn" onclick="updateIncomeTrans(${idx}, '${cat}', '${dateFilter}')">আপডেট</button>`);
+            } else {
+                let all = (await callApi('getExpenses')).data || [];
+                if (dateFilter) all = all.filter(e=>e.date === dateFilter);
+                const t = all[idx];
+                if(!isEditable(t.editableUntil)) { alert("১৬ ঘন্টা অতিক্রম"); return; }
+                showModal(`<h3>ব্যয় এডিট</h3><input type="date" id="dateVal" value="${t.date}"><br><input type="text" id="subCatVal" value="${t.subCategory}"><br><input type="number" id="amountVal" value="${t.amount}"><br><textarea id="noteVal">${t.note||''}</textarea><br><button class="btn" onclick="updateExpenseTrans(${idx}, '${cat}', '${dateFilter}')">আপডেট</button>`);
+            }
+        };
+        window.updateIncomeTrans = async function(idx, cat, dateFilter) { const newAmt = +document.getElementById('amountVal').value, newDate = document.getElementById('dateVal').value, newNote = document.getElementById('noteVal').value; await callApi('updateIncome', 'POST', { rowIndex: idx, category: cat, amount: newAmt, date: newDate, note: newNote }); alert('আয় আপডেট হয়েছে'); closeModal(); renderDashboard(); };
+        window.updateExpenseTrans = async function(idx, cat, dateFilter) { const newSub = document.getElementById('subCatVal').value, newAmt = +document.getElementById('amountVal').value, newDate = document.getElementById('dateVal').value, newNote = document.getElementById('noteVal').value; await callApi('updateExpense', 'POST', { rowIndex: idx, mainCategory: cat, subCategory: newSub, amount: newAmt, date: newDate, note: newNote, employeeName: null }); alert('ব্যয় আপডেট হয়েছে'); closeModal(); renderDashboard(); };
+
+        window.switchAccountSection = function(sec) { localStorage.setItem('accountsActiveSection', sec); localStorage.setItem('accountsPage_'+sec, '1'); renderDashboard(); };
+        window.filterAccountsByDate = function() { localStorage.setItem('accountsFilterDate_' + activeSection, document.getElementById('accountsDateFilter').value); localStorage.setItem('accountsPage_' + activeSection, '1'); renderDashboard(); };
+        window.clearAccountsFilter = function() { localStorage.removeItem('accountsFilterDate_' + activeSection); localStorage.setItem('accountsPage_' + activeSection, '1'); renderDashboard(); };
+        window.filterExpenseMonth = function() { localStorage.setItem('accountsExpenseMonth', document.getElementById('expenseMonthPicker').value); renderDashboard(); };
+        window.clearExpenseMonth = function() { localStorage.removeItem('accountsExpenseMonth'); renderDashboard(); };
+        window.prevPageAccounts = function() { let p=parseInt(localStorage.getItem('accountsPage_' + activeSection)||'1'); if(p>1) { localStorage.setItem('accountsPage_' + activeSection,(p-1).toString()); renderDashboard(); } };
+        window.nextPageAccounts = function() { let p=parseInt(localStorage.getItem('accountsPage_' + activeSection)||'1'); let max=Math.max(totalIncPages,totalExpPages); if(p<max) { localStorage.setItem('accountsPage_' + activeSection,(p+1).toString()); renderDashboard(); } };
+
+        return `
+            <div class="glass-card">
+                <div class="flex-between">
+                    <h2><i class="fas fa-chart-line"></i> একাউন্টস ড্যাশবোর্ড</h2>
+                    <div class="flex-gap"><button class="btn-outline btn" onclick="showChangePasswordModal()">🔐 পাসওয়ার্ড পরিবর্তন</button><button class="btn-outline btn" onclick="logout()">লগআউট</button></div>
+                </div>
+                <div class="flex-gap">${sections.map(sec => `<button class="btn" style="background:${activeSection===sec?'#f97316':'#2c5a6e'}" onclick="switchAccountSection('${sec}')">${sec}</button>`).join('')}</div>
+                <div class="filter-bar">
+                    <input type="date" id="accountsDateFilter" value="${filterDate}"><button class="btn" onclick="filterAccountsByDate()">ফিল্টার</button><button class="btn-outline btn" onclick="clearAccountsFilter()">ক্লিয়ার</button>
+                    <span>|</span>
+                    <input type="month" id="expenseMonthPicker" value="${selectedMonth}"><button class="btn" onclick="filterExpenseMonth()">মাস অনুযায়ী দেখুন</button><button class="btn-outline btn" onclick="clearExpenseMonth()">বর্তমান মাস</button>
+                </div>
+                <div class="stat-card" style="background:linear-gradient(115deg,#1e5f6e,#0f3b44); margin-bottom:20px;"><h3>📆 ${selectedMonth} মাসের ব্যয়ের ক্যাটাগরি ভিত্তিক সামারি</h3>${categorySummaryHtml}</div>
+                <div class="grid-cards">
+                    <div class="stat-card"><div style="cursor:pointer" onclick="showIncomeFormSection('${activeSection}')"><h3>💵 আয় - ${activeSection}</h3><div class="amount">৳ ${incTotal.toLocaleString()}</div></div><div class="transaction-list">${renderTransList(paginatedInc, 'inc', activeSection)}</div></div>
+                    <div class="stat-card"><div style="cursor:pointer" onclick="showExpenseFormSection('${activeSection}')"><h3>💸 ব্যয় - ${activeSection}</h3><div class="amount">৳ ${expTotal.toLocaleString()}</div></div><div class="transaction-list">${renderTransList(paginatedExp, 'exp', activeSection)}</div></div>
+                </div>
+                <div class="pagination"><button class="btn" onclick="prevPageAccounts()">◀ আগের</button><span>পৃষ্ঠা ${page}</span><button class="btn" onclick="nextPageAccounts()">পরবর্তী ▶</button></div>
+                <div class="stat-card" style="background:#2c5a6e; text-align:center;">📌 বর্তমান ব্যালেন্স: ৳ ${balance.toLocaleString()}</div>
+                <div class="flex-gap"><button class="btn" onclick="showDailyReport()">দৈনিক রিপোর্ট</button><button class="btn" onclick="showMonthlyReport()">মাসিক রিপোর্ট</button></div>
+            </div>
+        `;
+    }
+
+    // ========== INCHARGE DASHBOARD (serial recharge + attendance + complaint entry) ==========
+    async function renderInchargeDashboard() {
+        let filterDate = localStorage.getItem('inchargeFilterDate') || '';
+        let page = parseInt(localStorage.getItem('inchargePage') || '1');
+        const rowsPerPage = 10;
+        let recharges = (await callApi('getRecharges')).data || [];
+        if (filterDate) recharges = recharges.filter(r => r.date === filterDate);
+        let cashRecharges = recharges.filter(r => r.method === 'cash');
+        let bikashRecharges = recharges.filter(r => r.method === 'bikash');
+        const totalCash = cashRecharges.reduce((s,r)=>s+r.amount,0);
+        const totalBikash = bikashRecharges.reduce((s,r)=>s+r.amount,0);
+        const totalCount = recharges.length;
+        const start = (page-1)*rowsPerPage;
+        const paginatedCash = cashRecharges.slice(start, start+rowsPerPage);
+        const paginatedBikash = bikashRecharges.slice(start, start+rowsPerPage);
+        const totalPages = Math.ceil(Math.max(cashRecharges.length, bikashRecharges.length) / rowsPerPage);
+        let cashRows = '', bikashRows = '';
+        for (let i=0; i<rowsPerPage; i++) {
+            const cash = paginatedCash[i] || null;
+            const bikash = paginatedBikash[i] || null;
+            cashRows += `<div style="display:flex; gap:8px; margin-bottom:8px;"><input type="text" id="cash_id_${i}" placeholder="আইডি" value="${cash?.userId||''}" style="flex:2; padding:6px; border-radius:20px;"><input type="text" id="cash_name_${i}" placeholder="নাম" value="${cash?.userName||''}" style="flex:2; padding:6px; border-radius:20px;"><input type="number" id="cash_amount_${i}" placeholder="টাকা" value="${cash?.amount||''}" style="flex:1; padding:6px; border-radius:20px;"></div>`;
+            bikashRows += `<div style="display:flex; gap:8px; margin-bottom:8px;"><input type="text" id="bikash_id_${i}" placeholder="আইডি" value="${bikash?.userId||''}" style="flex:2; padding:6px; border-radius:20px;"><input type="text" id="bikash_name_${i}" placeholder="নাম" value="${bikash?.userName||''}" style="flex:2; padding:6px; border-radius:20px;"><input type="number" id="bikash_amount_${i}" placeholder="টাকা" value="${bikash?.amount||''}" style="flex:1; padding:6px; border-radius:20px;"></div>`;
+        }
+
+        window.saveCashRecharges = async function() { for (let i=0;i<rowsPerPage;i++) { let amt=+document.getElementById(`cash_amount_${i}`).value; if(amt) await callApi('addRecharge','POST',{type:'internet',method:'cash',userId:document.getElementById(`cash_id_${i}`).value,userName:document.getElementById(`cash_name_${i}`).value,amount:amt,date:getToday(),note:'',editableUntil:new Date(Date.now()+16*3600000).toISOString()}); } alert("ক্যাশ রিচার্জ সংরক্ষিত"); renderDashboard(); };
+        window.saveBikashRecharges = async function() { for (let i=0;i<rowsPerPage;i++) { let amt=+document.getElementById(`bikash_amount_${i}`).value; if(amt) await callApi('addRecharge','POST',{type:'internet',method:'bikash',userId:document.getElementById(`bikash_id_${i}`).value,userName:document.getElementById(`bikash_name_${i}`).value,amount:amt,date:getToday(),note:'',editableUntil:new Date(Date.now()+16*3600000).toISOString()}); } alert("বিকাশ রিচার্জ সংরক্ষিত"); renderDashboard(); };
+        window.saveAllRecharges = async function() { await saveCashRecharges(); await saveBikashRecharges(); };
+        window.filterInchargeByDate = function() { localStorage.setItem('inchargeFilterDate', document.getElementById('inchargeDateFilter').value); localStorage.setItem('inchargePage','1'); renderDashboard(); };
+        window.clearInchargeFilter = function() { localStorage.removeItem('inchargeFilterDate'); localStorage.setItem('inchargePage','1'); renderDashboard(); };
+        window.prevPageIncharge = function() { let p=parseInt(localStorage.getItem('inchargePage')||'1'); if(p>1) { localStorage.setItem('inchargePage',(p-1).toString()); renderDashboard(); } };
+        window.nextPageIncharge = function() { let p=parseInt(localStorage.getItem('inchargePage')||'1'); if(p<totalPages) { localStorage.setItem('inchargePage',(p+1).toString()); renderDashboard(); } };
+
+        return `
+            <div class="glass-card">
+                <div class="flex-between">
+                    <h2><i class="fas fa-tower-broadcast"></i> ডাটা ইনচার্জ</h2>
+                    <div class="flex-gap"><button class="btn-outline btn" onclick="showChangePasswordModal()">🔐 পাসওয়ার্ড পরিবর্তন</button><button class="btn-outline btn" onclick="logout()">লগআউট</button></div>
+                </div>
+                <div class="filter-bar"><input type="date" id="inchargeDateFilter" value="${filterDate}"><button class="btn" onclick="filterInchargeByDate()">ফিল্টার</button><button class="btn-outline btn" onclick="clearInchargeFilter()">ক্লিয়ার</button></div>
+                <div style="margin-bottom:20px; background:#f0f0f0; padding:15px; border-radius:24px;"><h3>📊 রিচার্জ সামারি</h3><p>💵 মোট ক্যাশ: ৳ ${totalCash.toLocaleString()} (${cashRecharges.length}টি)</p><p>📱 মোট বিকাশ: ৳ ${totalBikash.toLocaleString()} (${bikashRecharges.length}টি)</p><p>🔄 মোট লেনদেন: ${totalCount}টি</p></div>
+                <div class="serial-grid"><div class="serial-col"><h3>💵 ক্যাশ রিচার্জ</h3>${cashRows}<button class="btn" onclick="saveCashRecharges()">সেভ ক্যাশ</button></div><div class="serial-col"><h3>📱 বিকাশ রিচার্জ</h3>${bikashRows}<button class="btn" onclick="saveBikashRecharges()">সেভ বিকাশ</button></div></div>
+                <div class="pagination"><button class="btn" onclick="prevPageIncharge()">◀ আগের</button><span>পৃষ্ঠা ${page} / ${totalPages}</span><button class="btn" onclick="nextPageIncharge()">পরবর্তী ▶</button></div>
+                <button class="btn" style="margin-top:20px;" onclick="saveAllRecharges()">সব সেভ করুন (উভয় সাইড)</button>
+                <hr><div class="flex-gap"><button class="btn" onclick="showAttendanceForm()">📋 হাজিরা দিন</button><button class="btn" onclick="showComplaintEntry()">📢 অভিযোগ এন্ট্রি</button></div>
+            </div>
+        `;
+    }
+
+    // ========== OPERATOR DASHBOARD ==========
+    async function renderOperatorDashboard() {
+        let filterDate = localStorage.getItem('operatorFilterDate') || '';
+        let stbIncomes = (await callApi('getSTBIncomes')).data || [];
+        if (filterDate) stbIncomes = stbIncomes.filter(s => s.date === filterDate);
+        const totalSTB = stbIncomes.reduce((s,i)=>s+i.amount,0);
+        let linksPasswords = JSON.parse(localStorage.getItem('linksPasswords') || '[]');
+        const saveLinks = () => localStorage.setItem('linksPasswords', JSON.stringify(linksPasswords));
+        window.addLinkPassword = function() { let title=document.getElementById('linkTitle').value,url=document.getElementById('linkUrl').value,pass=document.getElementById('linkPass').value; if(!title){alert("টাইটেল দিন");return;} linksPasswords.push({title,url,password:pass,date:getToday()}); saveLinks(); document.getElementById('linkTitle').value=''; document.getElementById('linkUrl').value=''; document.getElementById('linkPass').value=''; renderOperatorDashboard(); };
+        window.deleteLink = function(idx) { linksPasswords.splice(idx,1); saveLinks(); renderOperatorDashboard(); };
+        window.filterOperatorByDate = function() { localStorage.setItem('operatorFilterDate', document.getElementById('operatorDateFilter').value); renderDashboard(); };
+        window.clearOperatorFilter = function() { localStorage.removeItem('operatorFilterDate'); renderDashboard(); };
+        let stbHtml = '<div class="transaction-list">'; stbIncomes.forEach((s,idx)=>{ const editable=isEditable(s.editableUntil); stbHtml+=`<div class="transaction-item"><span>${s.date} → ৳${s.amount} (${s.note||''})</span>${editable?`<button class="edit-btn" onclick="editSTB(${idx})">এডিট</button>`:'<span class="disabled-edit">সময় শেষ</span>'}</div>`; }); stbHtml+='</div>';
+        window.editSTB = async function(idx) { let all=(await callApi('getSTBIncomes')).data||[]; const t=all[idx]; if(!isEditable(t.editableUntil)){alert("১৬ ঘন্টা অতিক্রম");return;} showModal(`<h3>STB আয় এডিট</h3><input type="date" id="stbDate" value="${t.date}"><br><input type="number" id="stbAmount" value="${t.amount}"><br><textarea id="stbNote">${t.note||''}</textarea><br><button class="btn" onclick="updateSTB(${idx})">আপডেট</button>`); };
+        window.updateSTB = async function(idx) { const newDate=document.getElementById('stbDate').value, newAmt=+document.getElementById('stbAmount').value, newNote=document.getElementById('stbNote').value; await callApi('updateSTBIncome','POST',{rowIndex:idx,amount:newAmt,date:newDate,note:newNote}); alert("আপডেট হয়েছে"); closeModal(); renderDashboard(); };
+        const accessories = (await callApi('getAccessories')).data || [];
+        return `
+            <div class="glass-card">
+                <div class="flex-between">
+                    <h2><i class="fas fa-microchip"></i> ডাটা অপারেটর</h2>
+                    <div class="flex-gap"><button class="btn-outline btn" onclick="showChangePasswordModal()">🔐 পাসওয়ার্ড পরিবর্তন</button><button class="btn-outline btn" onclick="logout()">লগআউট</button></div>
+                </div>
+                <div class="filter-bar"><input type="date" id="operatorDateFilter" value="${filterDate}"><button class="btn" onclick="filterOperatorByDate()">ফিল্টার</button><button class="btn-outline btn" onclick="clearOperatorFilter()">ক্লিয়ার</button></div>
+                <div class="stat-card"><h3>📺 STB আয়</h3><div>মোট: ৳ ${totalSTB.toLocaleString()}</div><button class="btn" onclick="showSTBForm()">নতুন STB আয়</button>${stbHtml}</div>
+                <div class="stat-card"><h3>🛠️ এক্সেসরিজ লিস্ট</h3><button class="btn" onclick="showAccessoriesList()">ম্যানেজ করুন</button><div class="transaction-list">${accessories.map(a=>`<div class="transaction-item">🔧 ${a.itemName} → ${usersList.find(u=>u.username===a.assignedTo)?.name||'ফাঁকা'} (${a.note||''})</div>`).join('')||'<div>কোনো আইটেম নেই</div>'}</div></div>
+                <div class="stat-card"><h3>🔐 গুরুত্বপূর্ণ লিংক ও পাসওয়ার্ড</h3><input type="text" id="linkTitle" placeholder="টাইটেল"><input type="text" id="linkUrl" placeholder="লিংক/ইউআরএল"><input type="text" id="linkPass" placeholder="পাসওয়ার্ড"><button class="btn" onclick="addLinkPassword()">যোগ করুন</button><div class="transaction-list">${linksPasswords.map((item,idx)=>`<div class="transaction-item"><span><strong>${item.title}</strong><br>${item.url} (পাস: ${item.password})</span><button class="edit-btn" onclick="deleteLink(${idx})">🗑️</button></div>`).join('')}</div></div>
+            </div>
+        `;
+    }
+
+    // ========== EMPLOYEE DASHBOARD ==========
+    async function renderEmployeeDashboard(user) {
+        const salaryData = (await callApi('getExpenses')).data?.filter(e=>e.subCategory==='বেতন বাবদ' && e.employeeName===user.username) || [];
+        const accessories = (await callApi('getAccessories')).data || [];
+        const myAcc = accessories.filter(a=>a.assignedTo===user.username);
+        return `
+            <div class="glass-card">
+                <div class="flex-between">
+                    <h2>স্বাগতম, ${user.name}</h2>
+                    <div class="flex-gap"><button class="btn-outline btn" onclick="showChangePasswordModal()">🔐 পাসওয়ার্ড পরিবর্তন</button><button class="btn-outline btn" onclick="logout()">লগআউট</button></div>
+                </div>
+                <div class="grid-cards">
+                    <div class="stat-card"><h3>💰 বেতন</h3>${salaryData.map(s=>`${s.date}: ৳${s.amount}`).join('<br>')||'কোন তথ্য নেই'}</div>
+                    <div class="stat-card"><h3>🛠️ আমার এক্সেসরিজ</h3>${myAcc.map(a=>a.itemName).join(', ')||'কোনটি নেই'}</div>
+                </div>
+            </div>
+        `;
+    }
+
+    // ========== SHARED FORMS (Income/Expense/Attendance/Complaint/STB/Accessories) ==========
+    window.showIncomeFormSection = function(cat) { showModal(`<h3>আয় যোগ করুন (${cat})</h3><input type="number" id="cash" placeholder="নগদ"><input type="number" id="office" placeholder="অফিস কালেকশন"><input type="number" id="online" placeholder="অনলাইন/বিকাশ"><input type="number" id="deposit" placeholder="নগদ জমা"><textarea id="note" placeholder="নোট"></textarea><button class="btn" onclick="saveIncomeSection('${cat}')">সেভ</button>`); };
+    window.saveIncomeSection = async function(cat) { const total = (+document.getElementById('cash').value||0)+(+document.getElementById('office').value||0)+(+document.getElementById('online').value||0)+(+document.getElementById('deposit').value||0); if(!total){alert("টাকা দিন");return;} await callApi('addIncome','POST',{category:cat,amount:total,date:getToday(),note:document.getElementById('note').value,branch:'main',editableUntil:new Date(Date.now()+16*3600000).toISOString()}); alert('আয় সেভ হয়েছে'); closeModal(); renderDashboard(); };
+    window.showExpenseFormSection = function(cat) { showModal(`<h3>ব্যয় যোগ করুন (${cat})</h3><select id="subCat">${['ডিপিএস','বিদ্যুৎ বিল','অফিস খরচ','বেতন বাবদ','টিজি/প্যাচকট','ফাইবার ক্রয়','যন্ত্রাংশ ক্রয়','স্প্লিটার','বিবিধ','মেইন্টেন্স বাবদ','দানবাবদ','যাতায়াত','মোবাইল বিল','ইন্টারনেট বিল','আপ্যায়ন','কুরিয়ার খরচ','ব্যাংক জমা','তার ক্রয়','স্যার নিজ খরচ','ম্যাডাম খরচ'].map(c=>`<option value="${c}">${c}</option>`).join('')}</select><div id="empDiv" style="display:none;"><select id="employee">${usersList.filter(e=>e.role==='employee').map(e=>`<option value="${e.username}">${e.name}</option>`).join('')}</select></div><input type="number" id="amount" placeholder="টাকা"><textarea id="noteExp" placeholder="নোট"></textarea><button class="btn" onclick="saveExpenseSection('${cat}')">সেভ</button>`); const sub = document.getElementById('subCat'), empDiv = document.getElementById('empDiv'); sub.addEventListener('change', function() { empDiv.style.display = this.value === 'বেতন বাবদ' ? 'block' : 'none'; }); empDiv.style.display = sub.value === 'বেতন বাবদ' ? 'block' : 'none'; };
+    window.saveExpenseSection = async function(cat) { const subCat = document.getElementById('subCat').value, amount = +document.getElementById('amount').value; if(!amount){alert("টাকা দিন");return;} const employee = (subCat === 'বেতন বাবদ') ? document.getElementById('employee')?.value : null; await callApi('addExpense','POST',{mainCategory:cat,subCategory:subCat,amount,date:getToday(),note:document.getElementById('noteExp').value,employeeName:employee,editableUntil:new Date(Date.now()+16*3600000).toISOString()}); alert('ব্যয় সেভ হয়েছে'); closeModal(); renderDashboard(); };
+    window.showAttendanceForm = function() { let empOptions = usersList.filter(u=>u.role==='employee').map(u=>`<option value="${u.username}">${u.name}</option>`).join(''); showModal(`<h3>হাজিরা দিন</h3><select id="attEmp">${empOptions}</select><select id="attStatus"><option value="present">উপস্থিত</option><option value="absent">অনুপস্থিত</option><option value="late">লেট</option></select><textarea id="attNote" placeholder="নোট"></textarea><button class="btn" onclick="saveAttendance()">সেভ</button>`); };
+    window.saveAttendance = async function() { await callApi('addAttendance','POST',{username:document.getElementById('attEmp').value,status:document.getElementById('attStatus').value,date:getToday(),note:document.getElementById('attNote').value,lateTime:''}); alert('হাজিরা সেভ হয়েছে'); closeModal(); renderDashboard(); };
+    window.showComplaintEntry = function() { showModal(`<h3>নতুন অভিযোগ এন্ট্রি</h3><textarea id="complaintText" placeholder="অভিযোগের বিবরণ" rows="3"></textarea><select id="complaintStatus"><option value="pending">pending</option><option value="processing">processing</option></select><button class="btn" onclick="saveComplaint()">জমা দিন</button>`); };
+    window.saveComplaint = async function() { let complaint = document.getElementById('complaintText').value; if(!complaint){alert("অভিযোগ লিখুন");return;} let status = document.getElementById('complaintStatus').value; let complaints = JSON.parse(localStorage.getItem('userComplaints') || '[]'); complaints.push({ date: getToday(), complaint, status }); localStorage.setItem('userComplaints', JSON.stringify(complaints)); alert('অভিযোগ জমা হয়েছে'); closeModal(); };
+    window.showSTBForm = function() { showModal(`<h3>STB আয় যোগ</h3><input type="date" id="stbDate" value="${getToday()}"><br><input type="number" id="stbAmount" placeholder="টাকা"><br><textarea id="stbNote"></textarea><br><button class="btn" onclick="saveSTB()">সেভ</button>`); };
+    window.saveSTB = async function() { const amount = +document.getElementById('stbAmount').value; if(!amount){alert("টাকা দিন");return;} await callApi('addSTBIncome','POST',{amount,date:document.getElementById('stbDate').value,note:document.getElementById('stbNote').value,operatorName:currentUser.username,editableUntil:new Date(Date.now()+16*3600000).toISOString()}); alert("STB আয় সেভ হয়েছে"); closeModal(); renderDashboard(); };
+    window.showAccessoriesList = async function() { const acc = (await callApi('getAccessories')).data || []; let html = '<h3>এক্সেসরিজ লিস্ট</h3><input type="text" id="newItem" placeholder="নতুন যন্ত্রপাতি"><select id="assignTo"><option value="">ফাঁকা</option>'+usersList.map(u=>`<option value="${u.username}">${u.name}</option>`).join('')+'</select><textarea id="accNote"></textarea><button class="btn" onclick="addAccessory()">যোগ করুন</button><hr>'; acc.forEach(a=>{ html += `<div>🔧 ${a.itemName} → ${usersList.find(u=>u.username===a.assignedTo)?.name||'ফাঁকা'} (${a.note||''})</div>`; }); showModal(html); };
+    window.addAccessory = async function() { const item = document.getElementById('newItem').value; if(!item){alert("নাম দিন");return;} await callApi('addAccessory','POST',{itemName:item,assignedTo:document.getElementById('assignTo').value,note:document.getElementById('accNote').value}); alert("যোগ হয়েছে"); closeModal(); renderDashboard(); };
+    window.showDailyReport = async function() { const today = getToday(); const incomes = (await callApi('getIncomes')).data || []; const expenses = (await callApi('getExpenses')).data || []; const inc = incomes.filter(i=>i.date===today).reduce((s,i)=>s+i.amount,0); const exp = expenses.filter(e=>e.date===today).reduce((s,e)=>s+e.amount,0); alert(`📅 ${today}\nআয়: ${inc}\nব্যয়: ${exp}\nব্যালেন্স: ${inc-exp}`); };
+    window.showMonthlyReport = async function() { const incomes = (await callApi('getIncomes')).data || []; const expenses = (await callApi('getExpenses')).data || []; const month = new Date().getMonth(); const inc = incomes.filter(i=>new Date(i.date).getMonth()===month).reduce((s,i)=>s+i.amount,0); const exp = expenses.filter(e=>new Date(e.date).getMonth()===month).reduce((s,e)=>s+e.amount,0); alert(`এই মাসের আয়: ${inc}\nব্যয়: ${exp}\nসঞ্চয়: ${inc-exp}`); };
+
+    // ========== START APPLICATION ==========
+    (async () => {
+        await loadUsers();
+        const user = getStoredUser();
+        if (user) renderDashboard();
+        else renderLoginPage();
+    })();
+</script>
+</body>
+</html>
+```
