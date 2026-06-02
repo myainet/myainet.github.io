@@ -1,0 +1,289 @@
+﻿<!DOCTYPE html>
+<html lang="bn">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes">
+    <title>Ainet & CCN Management</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: #eef2f7; padding: 20px; }
+        .container { max-width: 1400px; margin: auto; background: white; border-radius: 24px; box-shadow: 0 12px 30px rgba(0,0,0,0.1); overflow: hidden; }
+        .header { background: linear-gradient(135deg, #0b2b5c, #b22222, #f4a261); color: white; padding: 20px; text-align: center; }
+        .logo { max-width: 70px; border-radius: 50%; margin-bottom: 8px; background: white; padding: 5px; }
+        h1 { font-size: 2rem; font-style: italic; letter-spacing: 1px; }
+        .sub { font-size: 0.9rem; opacity: 0.9; }
+        .login-card, .dashboard-pane { padding: 24px; }
+        .form-group { margin-bottom: 18px; }
+        input, select, textarea, button { width: 100%; padding: 12px; border-radius: 12px; border: 1px solid #ccc; font-size: 1rem; font-family: inherit; }
+        button { background: #0b2b5c; color: white; border: none; cursor: pointer; font-weight: bold; transition: 0.2s; }
+        button:hover { background: #1e4a7a; }
+        .grid-2, .grid-3, .grid-4 { display: grid; gap: 20px; margin: 20px 0; }
+        .grid-2 { grid-template-columns: repeat(2,1fr); }
+        .grid-3 { grid-template-columns: repeat(3,1fr); }
+        .grid-4 { grid-template-columns: repeat(4,1fr); }
+        .card { background: #f8fafc; border-radius: 20px; padding: 18px; box-shadow: 0 2px 6px rgba(0,0,0,0.05); border: 1px solid #e2e8f0; }
+        .card h3 { margin-bottom: 12px; color: #1e293b; }
+        .badge { background: #ddd; padding: 4px 10px; border-radius: 30px; font-size: 0.8rem; }
+        table { width: 100%; border-collapse: collapse; }
+        th, td { padding: 10px; border-bottom: 1px solid #ddd; text-align: left; }
+        .filter-bar { display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 20px; align-items: center; }
+        .filter-bar input, .filter-bar select, .filter-bar button { width: auto; flex: 1; min-width: 150px; }
+        .footer { text-align: center; padding: 16px; font-size: 0.75rem; color: #666; border-top: 1px solid #eee; }
+        @media (max-width: 700px) {
+            .grid-2, .grid-3, .grid-4 { grid-template-columns: 1fr; }
+            .filter-bar input, .filter-bar select, .filter-bar button { width: 100%; }
+        }
+    </style>
+</head>
+<body>
+<div class="container" id="app">
+    <div class="header">
+        <img class="logo" src="https://drive.google.com/uc?export=view&id=1aiaymrx1b0ZCSAw0jORyvf3iCdueU4ltwZ" alt="Logo" onerror="this.src='https://via.placeholder.com/80?text=Logo'">
+        <h1><i>Ainet & CCN Official</i></h1>
+        <div class="sub">Finance & Management</div>
+    </div>
+    
+    <!-- Login Page -->
+    <div id="loginPage" class="login-card">
+        <h3>🔐 লগইন করুন</h3>
+        <div class="form-group"><input type="text" id="username" placeholder="ইউজারনেম"></div>
+        <div class="form-group"><input type="password" id="password" placeholder="পাসওয়ার্ড"></div>
+        <button id="loginBtn">প্রবেশ</button>
+        <div id="errorMsg" style="color:red; margin-top:10px;"></div>
+        <div style="margin-top: 25px;">
+            <div class="card"><h4>👥 আজকে উপস্থিত</h4><div id="attendanceList">লোড হচ্ছে...</div></div>
+            <div class="card" style="margin-top: 15px;"><h4>⚠️ চলমান অভিযোগ</h4><div id="complaintsList">লোড হচ্ছে...</div></div>
+        </div>
+        <div class="footer">Developed by Mehrab Jahid</div>
+    </div>
+    
+    <!-- Dashboard -->
+    <div id="dashboard" style="display:none;"></div>
+</div>
+
+<script>
+    // ***** IMPORTANT: Paste your new Apps Script URL here *****
+    const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbxEz-b_VlhORNFneU8w3Odc67PGHjlTiWDYFOdnanN6YK-klEkLRpaqvmBwGGjIRhHosA/exec';
+    // *********************************************************
+    
+    let currentUser = null;
+    
+    async function post(action, data = {}) {
+        try {
+            const res = await fetch(SCRIPT_URL, {
+                method: 'POST',
+                body: JSON.stringify({ action, ...data }),
+                headers: { 'Content-Type': 'application/json' }
+            });
+            if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
+            return await res.json();
+        } catch (error) {
+            console.error('API Error:', error);
+            return { success: false, message: 'Network error. Please check your connection and try again.' };
+        }
+    }
+    
+    async function loadPublicData() {
+        try {
+            let att = await post('getTodayAttendance');
+            if (att && Array.isArray(att)) {
+                document.getElementById('attendanceList').innerHTML = att.map(a => `<div>✅ ${a.employee_name} (${a.status})</div>`).join('') || 'কেউ নেই';
+            } else {
+                document.getElementById('attendanceList').innerHTML = 'ডাটা লোডে সমস্যা';
+            }
+            
+            let comp = await post('getComplaints');
+            if (comp && Array.isArray(comp)) {
+                document.getElementById('complaintsList').innerHTML = comp.map(c => `<div>📢 ${c.complaint_details} (${c.date})</div>`).join('') || 'কোনো অভিযোগ নেই';
+            } else {
+                document.getElementById('complaintsList').innerHTML = 'ডাটা লোডে সমস্যা';
+            }
+        } catch(e) { 
+            console.error(e);
+            document.getElementById('attendanceList').innerHTML = 'লোড করতে ব্যর্থ';
+            document.getElementById('complaintsList').innerHTML = 'লোড করতে ব্যর্থ';
+        }
+    }
+    
+    document.getElementById('loginBtn').onclick = async () => {
+        let username = document.getElementById('username').value;
+        let password = document.getElementById('password').value;
+        if (!username || !password) {
+            document.getElementById('errorMsg').innerText = 'ইউজারনেম এবং পাসওয়ার্ড দিন';
+            return;
+        }
+        let res = await post('login', { username, password });
+        if (res.success) {
+            localStorage.setItem('token', res.token);
+            localStorage.setItem('role', res.role);
+            localStorage.setItem('name', res.name);
+            currentUser = { username, role: res.role, name: res.name };
+            showDashboard(res.role);
+        } else {
+            document.getElementById('errorMsg').innerText = res.message || 'লগইন ব্যর্থ হয়েছে';
+        }
+    };
+    
+    async function showDashboard(role) {
+        document.getElementById('loginPage').style.display = 'none';
+        let dashDiv = document.getElementById('dashboard');
+        dashDiv.style.display = 'block';
+        dashDiv.innerHTML = `<div class="dashboard-pane"><h2>স্বাগতম, ${localStorage.getItem('name')}</h2><button id="logoutBtn" style="width:auto; background:#b22222;">লগআউট</button><hr/></div>`;
+        document.getElementById('logoutBtn')?.addEventListener('click', () => {
+            localStorage.clear();
+            location.reload();
+        });
+        
+        if (role === 'admin') await buildAdminUI();
+        else if (role === 'accounts') await buildAccountsUI();
+        else if (role === 'incharge') await buildInchargeUI();
+        else if (role === 'operator') await buildOperatorUI();
+        else if (role === 'employee') await buildEmployeeUI();
+        else dashDiv.innerHTML += `<div class="card"><p>অজানা রোল</p></div>`;
+    }
+    
+    // Admin UI
+    async function buildAdminUI() {
+        let data = await post('getDashboardData', { role: 'admin' });
+        let html = `<div class="grid-3">
+            <div class="card"><h3>📊 মোট আয়</h3><p>${data.totalIncome || 0} টাকা</p></div>
+            <div class="card"><h3>📉 মোট ব্যয়</h3><p>${data.totalExpense || 0} টাকা</p></div>
+            <div class="card"><h3>👥 আজকের উপস্থিতি</h3><p>${data.todayAttendance || 0} জন</p></div>
+        </div>
+        <div class="card"><h3>🔍 ফিল্টার রিপোর্ট</h3>
+        <div class="filter-bar"><input type="date" id="filterDate" placeholder="তারিখ"><select id="filterEntity"><option value="">এন্টিটি</option><option>ainet</option><option>ccn</option></select><select id="filterType"><option value="">আয়/ব্যয়</option><option>income</option><option>expense</option></select><button id="applyFilter">এপ্লাই</button></div>
+        <div id="filterResult"></div></div>
+        <div class="card"><h3>👤 ইউজার ক্রিয়েট</h3>
+        <input type="text" id="newUsername" placeholder="ইউজারনেম" style="margin-bottom:5px;"><input type="password" id="newPassword" placeholder="পাস" style="margin-bottom:5px;"><select id="newRole" style="margin-bottom:5px;"><option>admin</option><option>accounts</option><option>incharge</option><option>operator</option><option>employee</option></select><input type="text" id="newName" placeholder="নাম" style="margin-bottom:5px;"><button id="createUserBtn">ক্রিয়েট</button></div>`;
+        document.querySelector('#dashboard .dashboard-pane').innerHTML += html;
+        
+        document.getElementById('createUserBtn')?.addEventListener('click', async () => {
+            let res = await post('createUser', {
+                username: document.getElementById('newUsername').value,
+                password: document.getElementById('newPassword').value,
+                role: document.getElementById('newRole').value,
+                name: document.getElementById('newName').value
+            });
+            alert(res.success ? 'ইউজার তৈরি হয়েছে' : 'ব্যর্থ');
+        });
+        document.getElementById('applyFilter')?.addEventListener('click', async () => {
+            let entity = document.getElementById('filterEntity').value;
+            let type = document.getElementById('filterType').value;
+            let date = document.getElementById('filterDate').value;
+            let filterData = await post('getFilteredTransactions', { entity, type, startDate: date, endDate: date });
+            let resultDiv = document.getElementById('filterResult');
+            if (filterData && filterData.length) {
+                resultDiv.innerHTML = `<table><td><th>তারিখ</th><th>এন্টিটি</th><th>ধরন</th><th>ক্যাটাগরি</th><th>টাকা</th></tr>` +
+                    filterData.map(t => `<tr><td>${t.date}</td><td>${t.entity}</td><td>${t.type}</td><td>${t.category}</td><td>${t.amount}</td></tr>`).join('') + `</table>`;
+            } else resultDiv.innerHTML = '<p>কোনো ডাটা নেই</p>';
+        });
+    }
+    
+    // Accounts UI
+    async function buildAccountsUI() {
+        let data = await post('getDashboardData', { role: 'accounts' });
+        let entities = ['ainet','ccn','reseller_ainet','reseller_ccn','ainet_polashbari','ccn_polashbari'];
+        let html = `<div class="grid-3">`;
+        for(let e of entities) {
+            html += `<div class="card"><h3>${e}</h3><p>আয়: ${data.summary?.[e]?.income || 0}<br>ব্যয়: ${data.summary?.[e]?.expense || 0}</p><button onclick="openEntry('${e}','income')">আয় যোগ</button> <button onclick="openEntry('${e}','expense')">ব্যয় যোগ</button></div>`;
+        }
+        html += `</div><div id="entryModal" style="background:white; border-radius:20px; padding:20px; margin-top:20px; display:none;"></div>`;
+        document.querySelector('#dashboard .dashboard-pane').innerHTML += html;
+        
+        window.openEntry = async (entity, type) => {
+            let modal = document.getElementById('entryModal');
+            if(type === 'income') {
+                modal.innerHTML = `<h3>আয় যোগ - ${entity}</h3>
+                <select id="incomeCat"><option>নগদ জমা</option><option>অফিস কালেকশন</option><option>অনলাইন কালেকশন</option><option>চেক কালেকশন</option></select>
+                <input type="number" id="amount" placeholder="টাকা"><input type="text" id="note" placeholder="নোট"><button id="saveIncome">সেভ</button>`;
+                modal.style.display = 'block';
+                document.getElementById('saveIncome').onclick = async () => {
+                    await post('addIncome', {
+                        entity, category: document.getElementById('incomeCat').value, subcategory: '',
+                        amount: document.getElementById('amount').value, payment_method: 'নগদ',
+                        note: document.getElementById('note').value, added_by: currentUser.username
+                    });
+                    alert('আয় সেভ হয়েছে'); location.reload();
+                };
+            } else {
+                let cats = await post('getExpenseCategories');
+                let selectHtml = `<select id="expCat">${cats.map(c=>`<option>${c}</option>`).join('')}</select>`;
+                modal.innerHTML = `<h3>ব্যয় যোগ - ${entity}</h3>${selectHtml}<input type="number" id="amount" placeholder="টাকা"><input type="text" id="note" placeholder="নোট"><button id="saveExpense">সেভ</button>`;
+                modal.style.display = 'block';
+                document.getElementById('saveExpense').onclick = async () => {
+                    await post('addExpense', {
+                        entity, category: document.getElementById('expCat').value,
+                        subcategory: document.getElementById('expCat').value,
+                        amount: document.getElementById('amount').value, note: document.getElementById('note').value,
+                        added_by: currentUser.username
+                    });
+                    alert('ব্যয় সেভ হয়েছে'); location.reload();
+                };
+            }
+        };
+    }
+    
+    // Incharge UI
+    async function buildInchargeUI() {
+        let html = `<div class="grid-2"><div class="card"><h3>📱 রিচার্জ Ainet</h3><input id="aid" placeholder="আইডি"><input id="aname" placeholder="নাম"><input id="aamount" type="number" placeholder="টাকা"><select id="amethod"><option>নগদ</option><option>বিকাশ</option></select><button id="rechargeA">জমা দিন</button></div>
+        <div class="card"><h3>📡 রিচার্জ CCN</h3><input id="cid" placeholder="আইডি"><input id="cname" placeholder="নাম"><input id="camount" type="number" placeholder="টাকা"><select id="cmethod"><option>নগদ</option><option>বিকাশ</option></select><button id="rechargeC">জমা দিন</button></div></div>
+        <div class="card"><h3>✅ হাজিরা খাতা</h3><select id="empSelect"></select><select id="attStatus"><option>উপস্থিত</option><option>অনুপস্থিত</option><option>লেট</option><option>ছুটি</option></select><input id="lateMin" placeholder="লেট মিনিট"><input id="attNote" placeholder="নোট"><button id="markAtt">হাজিরা দিন</button></div>`;
+        document.querySelector('#dashboard .dashboard-pane').innerHTML += html;
+        
+        let emps = await post('getEmployees');
+        let empSelect = document.getElementById('empSelect');
+        if (emps && emps.length) {
+            emps.forEach(e => empSelect.innerHTML += `<option value="${e.name}">${e.name}</option>`);
+        } else {
+            empSelect.innerHTML = '<option>কোন এমপ্লোয়ি নেই</option>';
+        }
+        
+        document.getElementById('rechargeA').onclick = async () => {
+            await post('addRecharge', { type:'ainet', customer_id:document.getElementById('aid').value, customer_name:document.getElementById('aname').value, amount:document.getElementById('aamount').value, method:document.getElementById('amethod').value, note:'', added_by:currentUser.username });
+            alert('রিচার্জ সেভ');
+        };
+        document.getElementById('rechargeC').onclick = async () => {
+            await post('addRecharge', { type:'ccn', customer_id:document.getElementById('cid').value, customer_name:document.getElementById('cname').value, amount:document.getElementById('camount').value, method:document.getElementById('cmethod').value, note:'', added_by:currentUser.username });
+            alert('রিচার্জ সেভ');
+        };
+        document.getElementById('markAtt').onclick = async () => {
+            await post('markAttendance', { employee_name: document.getElementById('empSelect').value, status: document.getElementById('attStatus').value, late_minutes: document.getElementById('lateMin').value, note: document.getElementById('attNote').value });
+            alert('হাজিরা রেকর্ড করা হয়েছে');
+        };
+    }
+    
+    // Operator UI
+    async function buildOperatorUI() {
+        let data = await post('getDashboardData', { role:'operator' });
+        let html = `<div class="card"><h3>📺 STB আয়</h3><input id="stbCid" placeholder="গ্রাহক আইডি"><input id="stbName" placeholder="নাম"><input id="stbAmount" type="number" placeholder="টাকা"><input id="stbNote" placeholder="নোট"><button id="addStb">সেভ</button></div>
+        <div class="card"><h3>🛠️ এক্সেসরিজ লিস্ট</h3><div id="accessoriesList">${(data.accessoriesList||[]).map(a => `<div>🔧 ${a.item_name} → ${a.assigned_to || 'খালি'}</div>`).join('')}</div><input id="newItem" placeholder="নতুন যন্ত্রপাতি"><input id="assignTo" placeholder="এসাইন (নাম)"><button id="updateAccessory">আপডেট</button></div>`;
+        document.querySelector('#dashboard .dashboard-pane').innerHTML += html;
+        
+        document.getElementById('addStb').onclick = async () => {
+            await post('addStbIncome', { customer_id:document.getElementById('stbCid').value, customer_name:document.getElementById('stbName').value, amount:document.getElementById('stbAmount').value, note:document.getElementById('stbNote').value, added_by:currentUser.username });
+            alert('এসটিবি আয় সেভ');
+        };
+        document.getElementById('updateAccessory').onclick = async () => {
+            await post('updateAccessory', { item_name:document.getElementById('newItem').value, assigned_to:document.getElementById('assignTo').value, note:'' });
+            alert('এক্সেসরিজ আপডেট'); location.reload();
+        };
+    }
+    
+    // Employee UI
+    async function buildEmployeeUI() {
+        let data = await post('getDashboardData', { role:'employee', username: currentUser.username });
+        let html = `<div class="card"><h3>💰 আমার বেতন</h3><div>${(data.mySalaryTransactions||[]).map(t => `${t.date}: ${t.amount} টাকা (${t.note})`).join('<br>') || 'কোন বেতন তথ্য নেই'}</div></div>
+        <div class="card"><h3>🔧 আমার এক্সেসরিজ</h3><div>${(data.myAccessories||[]).map(a => `${a.item_name} (${a.note})`).join('<br>') || 'কিছু এসাইন করা নেই'}</div></div>`;
+        document.querySelector('#dashboard .dashboard-pane').innerHTML += html;
+    }
+    
+    // Auto-login check & load public data
+    if (localStorage.getItem('token')) {
+        currentUser = { username: 'cached', role: localStorage.getItem('role'), name: localStorage.getItem('name') };
+        showDashboard(localStorage.getItem('role'));
+    } else {
+        loadPublicData();
+    }
+</script>
+</body>
+</html>
